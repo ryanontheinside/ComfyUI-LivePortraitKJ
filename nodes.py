@@ -322,17 +322,16 @@ class LivePortraitProcess:
         first_valid_index = next((i for i, info in enumerate(crop_info["crop_info_list"]) if info is not None), None)
         total_frames = len(driving_images)
 
-        # If no valid crop info, return blank images and empty output
+        # If no valid crop info, return source images and empty output
         if first_valid_index is None:
-            log.warning("LivePortraitProcess: No valid face detected in any of the source images. Returning blank images.")
-            blank_images = torch.zeros((total_frames, 512, 512, 3), dtype=torch.float32, device=source_image.device)
+            log.warning("LivePortraitProcess: No valid face detected in any of the source images. Returning source images.")
             empty_out = {
                 "out_list": [None] * total_frames,
                 "crop_info": crop_info,
                 "original_length": total_frames,
                 "mismatch_method": mismatch_method,
             }
-            return (blank_images, empty_out)
+            return (source_image, empty_out)
 
         # Fast-forward to start from the first valid frame with a face
         source_image = source_image[first_valid_index:]
@@ -578,7 +577,9 @@ class LivePortraitComposite:
                 source_frame = _get_source_frame(source_image, i, liveportrait_out["mismatch_method"]).unsqueeze(0).to(device)
 
             if not liveportrait_out["out_list"][i]:
+                # When no face is detected, pass through the source frame
                 composited_image_list.append(source_frame.cpu())
+                # Create a mask of zeros to indicate no face region
                 out_mask_list.append(torch.zeros((1, 3, H, W), device="cpu"))
             else:
                 cropped_image = torch.clamp(liveportrait_out["out_list"][i]["out"], 0, 1).permute(0, 2, 3, 1)
@@ -817,7 +818,6 @@ class LivePortraitCropper:
             # Processing source images
             if crop_info:
                 crop_info_list.append(crop_info)
-
                 cropped_images_list.append(cropped_image_256)
 
                 I_s = pipeline.live_portrait_wrapper.prepare_source(cropped_image_256)
@@ -838,7 +838,20 @@ class LivePortraitCropper:
                 
             else:
                 log.warning(f"Warning: No face detected on frame {str(i)}, skipping") 
-                cropped_images_list.append(np.zeros((256, 256, 3), dtype=np.uint8))
+                # Resize source image to 256x256 instead of creating a black frame
+                source_frame = source_image_np[i]
+                h, w = source_frame.shape[:2]
+                scale = min(256/h, 256/w)
+                new_h, new_w = int(h * scale), int(w * scale)
+                resized = cv2.resize(source_frame, (new_w, new_h))
+                
+                # Create a 256x256 canvas and center the resized image
+                canvas = np.zeros((256, 256, 3), dtype=np.uint8)
+                y_offset = (256 - new_h) // 2
+                x_offset = (256 - new_w) // 2
+                canvas[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
+                
+                cropped_images_list.append(canvas)
                 crop_info_list.append(None)
                 f_s_list.append(None)
                 x_s_list.append(None)
