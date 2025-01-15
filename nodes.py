@@ -381,6 +381,8 @@ class LivePortraitProcess:
                 delta_multiplier,
                 mismatch_method,
                 opt_retargeting_info,
+                expression_friendly,
+                expression_friendly_multiplier,
             )
             cropped_image_list.append(cropped_images)
 
@@ -445,6 +447,8 @@ class LivePortraitProcess:
         delta_multiplier: float = 1.0,
         mismatch_method: str = "constant",
         opt_retargeting_info: dict = None,
+        expression_friendly: bool = False,
+        expression_friendly_multiplier: float = 1.0,
     ):
 
         total_frames = len(driving_images)
