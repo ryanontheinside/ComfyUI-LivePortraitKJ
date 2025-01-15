@@ -78,6 +78,12 @@ class DownloadAndLoadLivePortraitModels:
                     ],
                     {"default": "auto"},
                 ),
+                "mode": (
+                    [
+                        "human",
+                        "animal",
+                    ],
+                ),
             },
         }
 
@@ -86,7 +92,7 @@ class DownloadAndLoadLivePortraitModels:
     FUNCTION = "loadmodel"
     CATEGORY = "LivePortrait"
 
-    def loadmodel(self, precision="fp16"):
+    def loadmodel(self, precision="fp16", mode="human"):
         device = mm.get_torch_device()
         mm.soft_empty_cache()
 
@@ -109,17 +115,20 @@ class DownloadAndLoadLivePortraitModels:
 
         pbar = comfy.utils.ProgressBar(3)
 
-        download_path = os.path.join(folder_paths.models_dir, "liveportrait")
-        model_path = os.path.join(download_path)
-
+        base_bath = os.path.join(folder_paths.models_dir, "liveportrait")
+        if mode == "human":
+            model_path = base_bath
+        else:
+            model_path = os.path.join(base_bath, "animal")
+      
         if not os.path.exists(model_path):
             log.info(f"Downloading model to: {model_path}")
             from huggingface_hub import snapshot_download
 
             snapshot_download(
                 repo_id="Kijai/LivePortrait_safetensors",
-                ignore_patterns="*landmark_model.pth*",
-                local_dir=download_path,
+                ignore_patterns=["*landmark_model.pth*","*animal*"] if mode == "human" else ["*landmark_model.pth*"],
+                local_dir=base_bath,
                 local_dir_use_symlinks=False,
             )
 
@@ -269,6 +278,8 @@ class LivePortraitProcess:
             
             "optional": {
                 "opt_retargeting_info": ("RETARGETINGINFO", {"default": None}),
+                "expression_friendly": ("BOOLEAN", {"default": False}),
+                "expression_friendly_multiplier": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 100.0, "step": 0.001}),
             }
         }
 
@@ -297,10 +308,15 @@ class LivePortraitProcess:
         delta_multiplier: float = 1.0,
         mismatch_method: str = "constant",
         opt_retargeting_info: dict = None,
+        expression_friendly: bool = False,
+        expression_friendly_multiplier: float = 1.0,
     ):
 
         if driving_images.shape[0] < source_image.shape[0]:
             raise ValueError("The number of driving images should be larger than the number of source images.")
+        if expression_friendly and source_image.shape[0] > 1:
+            raise ValueError("expression_friendly works only with single source image")
+        
 
         # Find first valid index across all source images
         first_valid_index = next((i for i, info in enumerate(crop_info["crop_info_list"]) if info is not None), None)
@@ -469,7 +485,9 @@ class LivePortraitProcess:
             delta_multiplier,
             relative_motion_mode,
             driving_smooth_observation_variance,
-            mismatch_method
+            mismatch_method,
+            expression_friendly=expression_friendly,
+            driving_multiplier=expression_friendly_multiplier,
         )
 
         # Get the shape of the first output in the "out_list". What is correct size? This is working
